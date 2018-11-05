@@ -1,0 +1,143 @@
+---
+title: "Exercise Quality and Human Activity Recognition Devices"
+author: "Thomas Bell"
+date: "11/5/2018"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Summary
+This paper desribes a research where machine learning techniques are used to predict the manner in which the subjects performed exercises. Readings from Human Activity Recognition Devices are used to predict the outcome of the exercise execution.
+
+The random forest method is used to train a machine learning model. Random forest it works well on large data sets, predicting a multiple class outcome (there are six outcome classes for exercise execution) and it is suitable for a mixture of numerical and categorical data.
+
+The original training data set consists of 19622 observations of 160 variables. After removing variables that contain more than 50% of NA values and meta data such as usernames and timestamps, 53 variables remain for training the model: 1 outcome and 52 predictors.
+
+Two methods are used to estimate model accuracy and to train a model: **(1)** a data split, partitioning the training data set in 75% training and 25% validation data and using the `randomForest` package to train a model, resulting in an overall accuracy of `0.9943`. **(2)** The second approach is a three-fold cross validation and using the `caret` package to train a random forest model; this approach resulted in a lower accuracy on the most optimal model: `1`. However the `caret` approach performs very slow, therefore for the remainder of this research we rely on the results of the `randomForest` approach.
+
+The expected out of sample error for the chosen model is `0.005709625`.
+
+The fitted random forest model has an accuracy of `0.9943`. The probability of correctly predicting 20 out of 20 cases in the testing set is `a^20 = `r 0.9943^20``. This is sufficient to conclude that based on the large data set provided, Human Activity Recognition Device readings provide a good basis to predict the quality of exercise execution. 
+
+## Getting the data
+```{r}
+setwd("~/Repos/ds-course8-wk4")
+
+# download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv","pml-training.csv")
+# download.file("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv", "pml-testing.csv")
+# files downloaded 2018-10-27
+
+training <- read.csv("pml-training.csv")
+testing <- read.csv("pml-testing.csv")
+```
+
+## Exploratory analysis
+```{r}
+dim(training)
+```
+
+Outcome classes:
+
+* exactly according to the specification (Class A), 
+* throwing the elbows to the front (Class B), 
+* lifting the dumbbell only halfway (Class C), 
+* lowering the dumbbell only halfway (Class D)
+* throwing the hips to the front (Class E).
+
+## Training
+### Cleaning the data
+The dataset contains 160 variables. Many of these variables contain large amounts of NA values. Regarding NA values, the following rule of thumb is followed:
+
+> If more than 50% of the observations are missing for a feature / variable, don't bother to impute missing values because imputing the same number over and over again reduces the variance in the variable being imputed, making it useless as a predictor / explainer of a dependent variable.
+
+Next to variables with NA values, there is also a number of variables that contain meta data such as user names and timestamps which are not of interest for training a prediction model. These variables are also removed.
+
+```{r}
+suppressMessages(library(dplyr))
+
+# Cols where blank or NA ratio is above 50%
+NAratio <- apply(training == "" | is.na(training),2,sum)/nrow(training)
+NAcols <- names(which(NAratio > 0.5)) 
+
+# Useless meta data columns
+metacols <- c("X", "user_name", "raw_timestamp_part_1", "raw_timestamp_part_2", "cvtd_timestamp", "new_window", "num_window")
+
+# Remove columns
+trainingClean <- select(training, c(-NAcols, -metacols))
+```
+
+### Partitioning the data
+As validation approach, a data split is performed on the training set to separate into 75% training data and 25% testing (validation) data. 
+
+Data splitting is useful on large data sets because the validation data set can provide a meaningful estimation of model accuracy before performing a prediction on the actual testing set.
+
+```{r}
+suppressMessages(library(caret))
+set.seed(1093)
+
+trainIndex <- createDataPartition(trainingClean$classe, p=.75, list=FALSE)
+data_train <- trainingClean[ trainIndex,]
+data_test <- trainingClean[-trainIndex,]
+```
+
+### Training the model
+```{r rf, cache = TRUE}
+# Random Forest
+suppressMessages(library(randomForest))
+modfit_rf <- randomForest(classe ~ ., data = data_train)
+plot(modfit_rf)
+```
+
+### Testing the model
+```{r}
+predfit_rf <- predict(modfit_rf, newdata = data_test)
+confmat_rf <- confusionMatrix(predfit_rf, data_test$classe)
+confmat_rf
+```
+
+### Out of sample error
+Out of Sample Error: The error rate you get on a new data set. Sometimes called the generalization error.
+
+```{r}
+unname(1-confmat_rf$overall['Accuracy'])
+```
+
+### Attempt with Three-fold Cross Validation
+In three-fold cross validation the training data set is split into three subsets. Each subset is held out in turn while the model is trained on the remaining subsets. Accuracy is determined for each instance in the data set and an overall estimate is provided.
+
+Three-fold cross validation is a very robust method for estmating accuracy on large data sets. However, computationally it is a costly method. The data partitioning approach in combination with the `randomForest`  model already provided an accuracy which is sufficient for the purposes of this research.
+
+```{r rfcv, cache = TRUE}
+trControl <- trainControl(method = "cv", number = 3, verboseIter = FALSE)
+modfit_rfcv <- train(classe ~ ., data = trainingClean, method = "rf", trControl = trControl)
+predfit_rfcv <- predict(modfit_rfcv, newdata = data_test)
+confmat_rfcv <- confusionMatrix(predfit_rfcv, data_test$classe)
+confmat_rfcv
+```
+
+## Validation
+
+### Repeat exact cleaning steps
+```{r}
+# Cols where blank or NA ratio is above 50%
+NAratio <- apply(testing == "" | is.na(testing),2,sum)/nrow(testing)
+NAcols <- names(which(NAratio > 0.5)) 
+
+# Useless meta data columns
+metacols <- c("X", "user_name", "raw_timestamp_part_1", "raw_timestamp_part_2", "cvtd_timestamp", "new_window", "num_window")
+
+# Remove columns
+testingClean <- select(testing, c(-NAcols, -metacols))
+```
+
+### Predict using model
+```{r}
+predfit_validation <- predict(modfit_rf, newdata = testingClean)
+predfit_validation
+```
+
+#### Citation
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. Qualitative Activity Recognition of Weight Lifting Exercises. Proceedings of 4th International Conference in Cooperation with SIGCHI (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013. Read more: http://groupware.les.inf.puc-rio.br/har#ixzz5V8DkqQtl
